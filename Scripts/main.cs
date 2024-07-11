@@ -1,5 +1,6 @@
 ﻿using UnityEngine;
 
+//test
 public class main : MonoBehaviour
 {
     // Handler for SkeletalTracking thread.

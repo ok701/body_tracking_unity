@@ -153,11 +153,33 @@ public class TrackerHandler : MonoBehaviour
             transform.GetChild(bodyRenderedNum).GetChild(jointNum).GetChild(0).GetComponent<MeshRenderer>().enabled = drawSkeletons;
         }
     }
+    
+    private HashSet<JointId> jointsToExclude = new HashSet<JointId>     // Skip rendering
+        {
+            JointId.HandTipLeft,
+            JointId.HandTipRight,
+            JointId.ThumbLeft,
+            JointId.ThumbRight,
+            JointId.ThumbRight,
+            JointId.Nose,
+            JointId.EyeLeft,
+            JointId.EyeRight,
+            JointId.EarLeft,
+            JointId.EarRight
+            // 추가적으로 제외할 조인트를 여기에 추가
+        };
 
     public void renderSkeleton(Body skeleton, int skeletonNumber)
     {
         for (int jointNum = 0; jointNum < (int)JointId.Count; jointNum++)
         {
+ 
+            if (jointsToExclude.Contains((JointId)jointNum))
+            {
+                continue;
+            }
+
+
             Vector3 jointPos = new Vector3(skeleton.JointPositions3D[jointNum].X, -skeleton.JointPositions3D[jointNum].Y, skeleton.JointPositions3D[jointNum].Z);
             Vector3 offsetPosition = transform.rotation * jointPos;
             Vector3 positionInTrackerRootSpace = transform.position + offsetPosition;

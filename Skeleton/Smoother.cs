@@ -9,7 +9,7 @@ public class Smoother
     private bool hasEnoughForSmoothing = false;
 
     // Number of the latest frames used to smooth current position; default 5.
-    public int NumberSmoothingFrames { get; set; } = 500;
+    public int NumberSmoothingFrames { get; set; } = 5;
 
     // Holds received data about moves.
     private List<SkeletonPosition> rawData = new List<SkeletonPosition>();

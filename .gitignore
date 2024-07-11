@@ -225,3 +225,4 @@ RosMessages/UnityRoboticsDemo/srv/ObjectPoseServiceResponse.cs.meta
 RosMessages/UnityRoboticsDemo/srv/PositionServiceRequest.cs.meta
 RosMessages/UnityRoboticsDemo/srv/PositionServiceResponse.cs.meta
 Scripts/RosPublisherExample.cs.meta
+

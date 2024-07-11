@@ -10,7 +10,10 @@ public class TrackerHandler : MonoBehaviour
     public bool drawSkeletons = true;
     Quaternion Y_180_FLIP = new Quaternion(0.0f, 1.0f, 0.0f, 0.0f);
 
-    // Start is called before the first frame update
+    private JointSmoothing jointSmoothing;
+    [SerializeField]
+    private int smoothingWindowSize = 5; // Adjust the window size from Inspector
+
     void Awake()
     {
         parentJointMap = new Dictionary<JointId, JointId>();
@@ -99,11 +102,13 @@ public class TrackerHandler : MonoBehaviour
         basisJointMap[JointId.EarLeft] = spineHipBasis;
         basisJointMap[JointId.EyeRight] = spineHipBasis;
         basisJointMap[JointId.EarRight] = spineHipBasis;
+
+        jointSmoothing = new JointSmoothing(smoothingWindowSize);
     }
 
     public void updateTracker(BackgroundData trackerFrameData)
     {
-        //this is an array in case you want to get the n closest bodies
+        // this is an array in case you want to get the n closest bodies
         int closestBody = findClosestTrackedBody(trackerFrameData);
 
         // render the closest body
@@ -153,58 +158,71 @@ public class TrackerHandler : MonoBehaviour
             transform.GetChild(bodyRenderedNum).GetChild(jointNum).GetChild(0).GetComponent<MeshRenderer>().enabled = drawSkeletons;
         }
     }
-    
-    private HashSet<JointId> jointsToExclude = new HashSet<JointId>     // Skip rendering
-        {
-            JointId.HandTipLeft,
-            JointId.HandTipRight,
-            JointId.ThumbLeft,
-            JointId.ThumbRight,
-            JointId.ThumbRight,
-            JointId.Nose,
-            JointId.EyeLeft,
-            JointId.EyeRight,
-            JointId.EarLeft,
-            JointId.EarRight
-            // 추가적으로 제외할 조인트를 여기에 추가
-        };
+
+    private HashSet<JointId> jointsToExclude = new HashSet<JointId> // Skip rendering
+    {
+        JointId.HandTipLeft,
+        JointId.HandTipRight,
+        JointId.ThumbLeft,
+        JointId.ThumbRight,
+        JointId.ThumbRight,
+        JointId.Nose,
+        JointId.EyeLeft,
+        JointId.EyeRight,
+        JointId.EarLeft,
+        JointId.EarRight
+        // 추가적으로 제외할 조인트를 여기에 추가
+    };
 
     public void renderSkeleton(Body skeleton, int skeletonNumber)
     {
+        Dictionary<JointId, Vector3> smoothedJointPositions = new Dictionary<JointId, Vector3>();
+        Dictionary<JointId, Quaternion> smoothedJointRotations = new Dictionary<JointId, Quaternion>();
+
         for (int jointNum = 0; jointNum < (int)JointId.Count; jointNum++)
         {
- 
             if (jointsToExclude.Contains((JointId)jointNum))
             {
                 continue;
             }
 
-
             Vector3 jointPos = new Vector3(skeleton.JointPositions3D[jointNum].X, -skeleton.JointPositions3D[jointNum].Y, skeleton.JointPositions3D[jointNum].Z);
-            Vector3 offsetPosition = transform.rotation * jointPos;
-            Vector3 positionInTrackerRootSpace = transform.position + offsetPosition;
+            Vector3 smoothedPosition = jointSmoothing.GetSmoothedPosition((JointId)jointNum, jointPos);
+            smoothedJointPositions[(JointId)jointNum] = smoothedPosition;
+
             Quaternion jointRot = Y_180_FLIP * new Quaternion(skeleton.JointRotations[jointNum].X, skeleton.JointRotations[jointNum].Y,
                 skeleton.JointRotations[jointNum].Z, skeleton.JointRotations[jointNum].W) * Quaternion.Inverse(basisJointMap[(JointId)jointNum]);
-            absoluteJointRotations[jointNum] = jointRot;
-            // these are absolute body space because each joint has the body root for a parent in the scene graph
-            transform.GetChild(skeletonNumber).GetChild(jointNum).localPosition = jointPos;
-            transform.GetChild(skeletonNumber).GetChild(jointNum).localRotation = jointRot;
+            Quaternion smoothedRotation = jointSmoothing.GetSmoothedRotation((JointId)jointNum, jointRot);
+            smoothedJointRotations[(JointId)jointNum] = smoothedRotation;
 
-            const int boneChildNum = 0;
-            if (parentJointMap[(JointId)jointNum] != JointId.Head && parentJointMap[(JointId)jointNum] != JointId.Count)
+            absoluteJointRotations[jointNum] = smoothedRotation;
+
+            transform.GetChild(skeletonNumber).GetChild(jointNum).localPosition = smoothedPosition;
+            transform.GetChild(skeletonNumber).GetChild(jointNum).localRotation = smoothedRotation;
+        }
+
+        const int boneChildNum = 0;
+        foreach (var jointPair in parentJointMap)
+        {
+            JointId jointId = jointPair.Key;
+            JointId parentJointId = jointPair.Value;
+
+            if (parentJointId != JointId.Count && !jointsToExclude.Contains(jointId) && !jointsToExclude.Contains(parentJointId))
             {
-                Vector3 parentTrackerSpacePosition = new Vector3(skeleton.JointPositions3D[(int)parentJointMap[(JointId)jointNum]].X,
-                    -skeleton.JointPositions3D[(int)parentJointMap[(JointId)jointNum]].Y, skeleton.JointPositions3D[(int)parentJointMap[(JointId)jointNum]].Z);
-                Vector3 boneDirectionTrackerSpace = jointPos - parentTrackerSpacePosition;
-                Vector3 boneDirectionWorldSpace = transform.rotation * boneDirectionTrackerSpace;
-                Vector3 boneDirectionLocalSpace = Quaternion.Inverse(transform.GetChild(skeletonNumber).GetChild(jointNum).rotation) * Vector3.Normalize(boneDirectionWorldSpace);
-                transform.GetChild(skeletonNumber).GetChild(jointNum).GetChild(boneChildNum).localScale = new Vector3(1, 20.0f * 0.5f * boneDirectionWorldSpace.magnitude, 1);
-                transform.GetChild(skeletonNumber).GetChild(jointNum).GetChild(boneChildNum).localRotation = Quaternion.FromToRotation(Vector3.up, boneDirectionLocalSpace);
-                transform.GetChild(skeletonNumber).GetChild(jointNum).GetChild(boneChildNum).position = transform.GetChild(skeletonNumber).GetChild(jointNum).position - 0.5f * boneDirectionWorldSpace;
+                Vector3 jointPos = smoothedJointPositions[jointId];
+                Vector3 parentPos = smoothedJointPositions[parentJointId];
+
+                Vector3 boneDirection = jointPos - parentPos;
+                Vector3 boneDirectionWorldSpace = transform.rotation * boneDirection;
+                Vector3 boneDirectionLocalSpace = Quaternion.Inverse(transform.GetChild(skeletonNumber).GetChild((int)jointId).rotation) * Vector3.Normalize(boneDirectionWorldSpace);
+
+                transform.GetChild(skeletonNumber).GetChild((int)jointId).GetChild(boneChildNum).localScale = new Vector3(1, 20.0f * 0.5f * boneDirectionWorldSpace.magnitude, 1);
+                transform.GetChild(skeletonNumber).GetChild((int)jointId).GetChild(boneChildNum).localRotation = Quaternion.FromToRotation(Vector3.up, boneDirectionLocalSpace);
+                transform.GetChild(skeletonNumber).GetChild((int)jointId).GetChild(boneChildNum).position = transform.GetChild(skeletonNumber).GetChild((int)jointId).position - 0.5f * boneDirectionWorldSpace;
             }
-            else
+            else if (parentJointId == JointId.Count)
             {
-                transform.GetChild(skeletonNumber).GetChild(jointNum).GetChild(boneChildNum).gameObject.SetActive(false);
+                transform.GetChild(skeletonNumber).GetChild((int)jointId).GetChild(boneChildNum).gameObject.SetActive(false);
             }
         }
     }
@@ -222,9 +240,8 @@ public class TrackerHandler : MonoBehaviour
             parentJointRotationBodySpace = absoluteJointRotations[(int)parent];
         }
         Quaternion jointRotationBodySpace = absoluteJointRotations[(int)jointId];
-        Quaternion relativeRotation =  Quaternion.Inverse(parentJointRotationBodySpace) * jointRotationBodySpace;
+        Quaternion relativeRotation = Quaternion.Inverse(parentJointRotationBodySpace) * jointRotationBodySpace;
 
         return relativeRotation;
     }
-
 }
